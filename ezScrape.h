@@ -1,11 +1,12 @@
 #pragma once
 #define CURL_STATICLIB
 #include <iostream>
+#include <fstream>
 #include <curl/curl.h>
 #include <wx/wx.h>
 #include <wx/numdlg.h>
 #include "g_primitive_funcs.h"
-//implement hashmap to lookup if links already crawled
+
 //implement actual file downloading
 
 struct MemBlock {
@@ -38,7 +39,7 @@ private:
 	long cur_depth = 0;
 	std::vector<std::string>links;
 	void scrapeLink(std::string link);
-	void downloadLink(std::string link);
+	void downloadLink(std::string link, std::string ender);
 	void scrapeLoop(int* pre_size, std::string ender, bool* repeat);
 	Gore::HashMap<int> links_map;
 public:

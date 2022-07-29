@@ -5,7 +5,7 @@ EVT_BUTTON(9002, OnStart)
 EVT_BUTTON(9003, OnDepth)
 wxEND_EVENT_TABLE()
 
-
+FILE* fp;
 MemBlock* curdata = nullptr;
 std::vector<std::string> links;
 void mFrame::OnReset(wxCommandEvent& evt) {
@@ -29,10 +29,12 @@ size_t get_data(char* buf, size_t itemsize, size_t nitems, void* ignore) {
 void mFrame::scrapeLink(std::string link) {
 	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 	curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
 	curl_easy_perform(curl);
+	curl_easy_reset(curl);
 	//create base url
 	std::string base_url;
 	int c = 0;
@@ -85,7 +87,6 @@ void mFrame::scrapeLink(std::string link) {
 				}
 				if (str.size() > 7 && str.find("https://") != std::string::npos) {
 					if (links_map.get(str) == nullptr) {
-						data_listing->AppendString(str);
 						links.push_back(str);
 						links_map.insert(str, 0);
 					}
@@ -102,8 +103,68 @@ void mFrame::scrapeLink(std::string link) {
 	}
 	curdata = nullptr;
 }
-void mFrame::downloadLink(std::string link) {
-	
+void mFrame::downloadLink(std::string link, std::string ender) {
+	MemBlock* ptr = curdata;
+	while (ptr != nullptr) {
+		std::free(ptr->mem);
+		ptr = ptr->next;
+	}
+	curdata = nullptr;
+	std::string temp;
+	int i = 0;
+	int c = 0;
+	for (i; i < link.size(); i++) {
+		if (link[i] == '.') {
+			c++;
+			if (c > 1) {
+				break;
+			}
+		}
+	}
+	for (i; i > 0 && link[i] != '/'; i--);
+	i++;
+	for (i; link[i] != '.' && i < link.size(); i++) {
+		temp.push_back(link[i]);
+	}
+	for (auto& j : ender) {
+		temp.push_back(j);
+	}
+	curl_slist* header = curl_slist_append(NULL, "Connection: keep-alive");
+	header = curl_slist_append(header, "sec-ch-ua:\"Chromium\";v=\"2021\", \"; Not A Brand\";v=\"99\"");
+	header = curl_slist_append(header, "Sec-Fetch-Dest: document");
+	header = curl_slist_append(header, "Sec-Fetch-Mode: navigate");
+	header = curl_slist_append(header, "Accept-Language: en-US,en;q=0.9");
+	header = curl_slist_append(header, "DNT: 1");
+	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "identity");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+	curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5000L);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+	curl_easy_perform(curl);
+	curl_easy_reset(curl);
+	data_listing->AppendString(link);
+	ptr = curdata;
+	std::ofstream file(temp);
+	while (ptr != nullptr) {
+		//for (int j = 0; j < ptr->size; j++) {
+			//file << ptr->mem[j];
+		//}
+		file.write(ptr->mem, ptr->size);
+		ptr = ptr->next;
+	}
+	file.close();
+	ptr = curdata;
+	while (ptr != nullptr) {
+		std::free(ptr->mem);
+		ptr = ptr->next;
+	}
+	curdata = nullptr;
 }
 bool checkFileEnding(std::string link, std::string end) {
 	for (int i = 0; i < link.size(); i++) {
@@ -125,14 +186,12 @@ bool checkFileEnding(std::string link, std::string end) {
 void mFrame::scrapeLoop(int* pre_size, std::string ender, bool* repeat) {
 	*repeat = false;
 	for (int i = 0; i < *pre_size; i++) {
-		if (!checkFileEnding(links[i], ender)) {
-			scrapeLink(links[i]);
+		if (!checkFileEnding(links[0], ender)) {
+			scrapeLink(links[0]);
 		}
 		else {
-			downloadLink(links[i]);
+			downloadLink(links[0], ender);
 		}
-	}
-	for (int i = 0; i < *pre_size; i++) {
 		links.erase(links.begin());
 	}
 	cur_depth++;
