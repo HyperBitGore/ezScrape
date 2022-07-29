@@ -129,17 +129,39 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	for (auto& j : ender) {
 		temp.push_back(j);
 	}
+	//check if url will redirct, in which case change the link to the new redirect location
+	/*curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
+	//curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_perform(curl);
+	char* loc;
+	bool ski = false;
+	CURLcode res = curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &loc);
+	if (res == CURLE_OK){
+		std::string nulink = loc;
+		link = nulink;
+		ski = true;
+	}
+	curl_easy_reset(curl);*/
+	//actual file download
 	curl_slist* header = curl_slist_append(NULL, "Connection: keep-alive");
-	header = curl_slist_append(header, "sec-ch-ua:\"Chromium\";v=\"2021\", \"; Not A Brand\";v=\"99\"");
+	header = curl_slist_append(header, "method: GET");
+	header = curl_slist_append(header, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+	//header = curl_slist_append(header, "sec-ch-ua:\"Chromium\";v=\"2021\", \"; Not A Brand\";v=\"99\"");
 	header = curl_slist_append(header, "Sec-Fetch-Dest: document");
 	header = curl_slist_append(header, "Sec-Fetch-Mode: navigate");
+	header = curl_slist_append(header, "Sec-Fetch-Site: none");
+	header = curl_slist_append(header, "Sec-Fetch-User: ?1");
+	//header = curl_slist_append(header, "content-type: application/pdf");
 	header = curl_slist_append(header, "Accept-Language: en-US,en;q=0.9");
 	header = curl_slist_append(header, "DNT: 1");
+	FILE* fp;
+	fp = fopen(temp.c_str(), "wb");
 	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
-	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "identity");
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "gzip, deflate, br");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+	//curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
 	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
 	curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -148,13 +170,12 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 	curl_easy_perform(curl);
 	curl_easy_reset(curl);
+	fclose(fp);
 	data_listing->AppendString(link);
 	ptr = curdata;
-	std::ofstream file(temp);
+	//ofstream wasn't in binary mode smh
+	/*std::ofstream file(temp);
 	while (ptr != nullptr) {
-		//for (int j = 0; j < ptr->size; j++) {
-			//file << ptr->mem[j];
-		//}
 		file.write(ptr->mem, ptr->size);
 		ptr = ptr->next;
 	}
@@ -164,7 +185,7 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 		std::free(ptr->mem);
 		ptr = ptr->next;
 	}
-	curdata = nullptr;
+	curdata = nullptr;*/
 }
 bool checkFileEnding(std::string link, std::string end) {
 	for (int i = 0; i < link.size(); i++) {
