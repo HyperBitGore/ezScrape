@@ -1,14 +1,14 @@
 #pragma once
 #define CURL_STATICLIB
+#define NOMINMAX
 #include <iostream>
 #include <fstream>
 #include <curl/curl.h>
 #include <wx/wx.h>
 #include <wx/numdlg.h>
 #include "g_primitive_funcs.h"
+#include "t_pool.h"
 
-
-//add multithreading
 
 struct MemBlock {
 	char* mem;
@@ -33,19 +33,20 @@ public:
 	wxTextCtrl* file_end;
 	wxListBox* data_listing;
 private:
-	CURL* curl;
+	//CURL* curl;
 	void OnSettings(wxCommandEvent& event);
 	void OnExit(wxCommandEvent& event);
 	long m_depth = 1;
 	long cur_depth = 0;
-	std::vector<std::string>links;
-	void scrapeLink(std::string link, std::string ender);
-	void downloadLink(std::string link, std::string ender);
+	static void scrapeLink(std::string link, std::string ender);
+	static void downloadLink(std::string link, std::string ender);
 	void scrapeLoop(int* pre_size, std::string ender, bool* repeat);
-	Gore::HashMap<int> links_map;
 public:
 	void OnReset(wxCommandEvent& evt);
 	void OnStart(wxCommandEvent& evt);
 	void OnDepth(wxCommandEvent& evt);
 	wxDECLARE_EVENT_TABLE();
 };
+
+
+

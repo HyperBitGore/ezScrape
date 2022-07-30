@@ -5,15 +5,16 @@ EVT_BUTTON(9002, OnStart)
 EVT_BUTTON(9003, OnDepth)
 wxEND_EVENT_TABLE()
 
-FILE* fp;
-MemBlock* curdata = nullptr;
 std::vector<std::string> links;
+Gore::HashMap<int> links_map;
+std::mutex mt1;
+thread_pool pool(std::thread::hardware_concurrency());
 void mFrame::OnReset(wxCommandEvent& evt) {
-	curl_easy_reset(curl);
 	link_text->Clear();
+	data_listing->Clear();
 }
 
-size_t get_data(char* buf, size_t itemsize, size_t nitems, void* ignore) {
+size_t get_data(char* buf, size_t itemsize, size_t nitems, MemBlock** curdata) {
 	size_t bytes = itemsize * nitems;
 	MemBlock* me = new MemBlock;
 	me->mem = (char*)std::malloc(bytes);
@@ -21,14 +22,17 @@ size_t get_data(char* buf, size_t itemsize, size_t nitems, void* ignore) {
 		std::memcpy(me->mem, buf, bytes);
 	}
 	me->size = bytes;
-	me->next = curdata;
-	curdata = me;
+	me->next = *curdata;
+	*curdata = me;
 	return bytes;
 }
 
 void mFrame::scrapeLink(std::string link, std::string ender) {
+	MemBlock* curdata = nullptr;
+	CURL* curl = curl_easy_init();
 	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &curdata);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
@@ -78,30 +82,37 @@ void mFrame::scrapeLink(std::string link, std::string ender) {
 				i++;
 				std::string str;
 				std::string str2;
+				bool ski = false;
 				//getting actual link 
 				for (size_t n = i; ptr->mem[n] != '\"' && n < ptr->size; n++) {
 					str.push_back(ptr->mem[n]);
-				}
-				//add the begining of link if str starts with /
-				if (str[0] == '/' || str.find(ender) != std::string::npos) {
-					str2 = link + str;
-					if (str[0] != '/') {
-						//str2 = link + "/" + str;
-						str = base_url + "/" + str;
-					}
-					else {
-						str = base_url + str;
-					}
-					if (links_map.get(str2) == nullptr) {
-						links.push_back(str2);
-						links_map.insert(str2, 0);
+					if (ptr->mem[n] == '<' || ptr->mem[n] == '>') {
+						ski = true;
 					}
 				}
-				if (str.size() > 7 && str.find("https://") != std::string::npos && str.find("<") == std::string::npos && str.find(">") == std::string::npos) {
-					if (links_map.get(str) == nullptr) {
-						links.push_back(str);
-						links_map.insert(str, 0);
+				if (!ski) {
+					//add the begining of link if str starts with /
+					mt1.lock();
+					if (str[0] == '/' || str.find(ender) != std::string::npos) {
+						str2 = link + str;
+						if (str[0] != '/') {
+							str = base_url + "/" + str;
+						}
+						else {
+							str = base_url + str;
+						}
+						if (links_map.get(str2) == nullptr) {
+							links.push_back(str2);
+							links_map.insert(str2, 0);
+						}
 					}
+					if (str.size() > 7 && str.find("https://") != std::string::npos) {
+						if (links_map.get(str) == nullptr) {
+							links.push_back(str);
+							links_map.insert(str, 0);
+						}
+					}
+					mt1.unlock();
 				}
 			}
 		}
@@ -114,14 +125,9 @@ void mFrame::scrapeLink(std::string link, std::string ender) {
 		ptr = ptr->next;
 	}
 	curdata = nullptr;
+	curl_easy_cleanup(curl);
 }
 void mFrame::downloadLink(std::string link, std::string ender) {
-	MemBlock* ptr = curdata;
-	while (ptr != nullptr) {
-		std::free(ptr->mem);
-		ptr = ptr->next;
-	}
-	curdata = nullptr;
 	std::string temp;
 	int i = 0;
 	int c = 0;
@@ -141,10 +147,10 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	for (auto& j : ender) {
 		temp.push_back(j);
 	}
+	CURL* curl = curl_easy_init();
 	//https://stackoverflow.com/questions/20487162/i-cant-get-http-code-404-with-libcurl
 	//check if link provides 404
 	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
-	//curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_perform(curl);
 	long rep;
 	CURLcode res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &rep);
@@ -158,13 +164,10 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	//actual file download
 	curl_slist* header = curl_slist_append(NULL, "Connection: keep-alive");
 	header = curl_slist_append(header, "method: GET");
-	//header = curl_slist_append(header, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
-	//header = curl_slist_append(header, "sec-ch-ua:\"Chromium\";v=\"2021\", \"; Not A Brand\";v=\"99\"");
 	header = curl_slist_append(header, "Sec-Fetch-Dest: document");
 	header = curl_slist_append(header, "Sec-Fetch-Mode: navigate");
 	header = curl_slist_append(header, "Sec-Fetch-Site: none");
 	header = curl_slist_append(header, "Sec-Fetch-User: ?1");
-	//header = curl_slist_append(header, "content-type: application/pdf");
 	header = curl_slist_append(header, "Accept-Language: en-US,en;q=0.9");
 	header = curl_slist_append(header, "DNT: 1");
 	FILE* fp;
@@ -174,7 +177,6 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-	//curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
 	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
 	curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -183,23 +185,9 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 	curl_easy_perform(curl);
 	curl_easy_reset(curl);
-	//is overwriting data for empty files
+	//was overwriting data for empty files fixed with 404 check
 	if (fp != nullptr) { fclose(fp); }
-	data_listing->AppendString(link);
-	ptr = curdata;
-	//ofstream wasn't in binary mode smh
-	/*std::ofstream file(temp);
-	while (ptr != nullptr) {
-		file.write(ptr->mem, ptr->size);
-		ptr = ptr->next;
-	}
-	file.close();
-	ptr = curdata;
-	while (ptr != nullptr) {
-		std::free(ptr->mem);
-		ptr = ptr->next;
-	}
-	curdata = nullptr;*/
+	curl_easy_cleanup(curl);
 }
 bool checkFileEnding(std::string link, std::string end) {
 	for (int i = 0; i < link.size(); i++) {
@@ -218,14 +206,18 @@ bool checkFileEnding(std::string link, std::string end) {
 	return false;
 }
 
+
 void mFrame::scrapeLoop(int* pre_size, std::string ender, bool* repeat) {
 	*repeat = false;
 	for (int i = 0; i < *pre_size; i++) {
 		if (!checkFileEnding(links[0], ender)) {
-			scrapeLink(links[0], ender);
+			//scrapeLink(links[0], ender);
+			pool.push_task(scrapeLink, links[0], ender);
 		}
 		else {
-			downloadLink(links[0], ender);
+			//downloadLink(links[0], ender);
+			pool.push_task(downloadLink, links[0], ender);
+			data_listing->AppendString(links[0]);
 		}
 		links.erase(links.begin());
 	}
@@ -252,16 +244,20 @@ void mFrame::OnStart(wxCommandEvent& evt) {
 			scrapeLoop(&pre_size, ender, &rep);
 		}
 	}
+	//blocking till all tasks are done, just for sake of clarity on whether task is done or not, might be better way of doing this
+	while (pool.get_tasks_total() > 0) {
+		
+	}
 }
 
 
 
 void mFrame::OnExit(wxCommandEvent& event)
 {
-	curl_easy_cleanup(curl);
 	curl_global_cleanup();
 	links.clear();
 	links_map.~HashMap();
+	pool.~thread_pool();
 	Close(true);
 }
 void mFrame::OnDepth(wxCommandEvent& event)
@@ -279,8 +275,6 @@ int hash_func(std::string key) {
 
 
 mFrame::mFrame() : wxFrame(NULL, wxID_ANY, "ezScrape", wxPoint(30, 30), wxSize(400, 600)) {
-	curl = curl_easy_init();
-
 	wxStaticText* text1 = new wxStaticText(this, wxID_ANY, "URL: ", wxPoint(1, 5), wxSize(70, 20));
 	wxStaticText* text2 = new wxStaticText(this, wxID_ANY, "File Type: ", wxPoint(1, 40), wxSize(70, 20));
 	link_text = new wxTextCtrl(this, wxID_ANY, "", wxPoint(1, 20), wxSize(350, 20));
