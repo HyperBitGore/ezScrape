@@ -26,7 +26,7 @@ size_t get_data(char* buf, size_t itemsize, size_t nitems, void* ignore) {
 	return bytes;
 }
 
-void mFrame::scrapeLink(std::string link) {
+void mFrame::scrapeLink(std::string link, std::string ender) {
 	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_data);
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -77,15 +77,27 @@ void mFrame::scrapeLink(std::string link) {
 				for (i; ptr->mem[i] != '\"' && i < ptr->size; i++);
 				i++;
 				std::string str;
+				std::string str2;
 				//getting actual link 
 				for (size_t n = i; ptr->mem[n] != '\"' && n < ptr->size; n++) {
 					str.push_back(ptr->mem[n]);
 				}
 				//add the begining of link if str starts with /
-				if (str[0] == '/') {
-					str = base_url + str;
+				if (str[0] == '/' || str.find(ender) != std::string::npos) {
+					str2 = link + str;
+					if (str[0] != '/') {
+						//str2 = link + "/" + str;
+						str = base_url + "/" + str;
+					}
+					else {
+						str = base_url + str;
+					}
+					if (links_map.get(str2) == nullptr) {
+						links.push_back(str2);
+						links_map.insert(str2, 0);
+					}
 				}
-				if (str.size() > 7 && str.find("https://") != std::string::npos) {
+				if (str.size() > 7 && str.find("https://") != std::string::npos && str.find("<") == std::string::npos && str.find(">") == std::string::npos) {
 					if (links_map.get(str) == nullptr) {
 						links.push_back(str);
 						links_map.insert(str, 0);
@@ -129,23 +141,24 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	for (auto& j : ender) {
 		temp.push_back(j);
 	}
-	//check if url will redirct, in which case change the link to the new redirect location
-	/*curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
+	//https://stackoverflow.com/questions/20487162/i-cant-get-http-code-404-with-libcurl
+	//check if link provides 404
+	curl_easy_setopt(curl, CURLOPT_URL, link.c_str());
 	//curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_perform(curl);
-	char* loc;
-	bool ski = false;
-	CURLcode res = curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &loc);
-	if (res == CURLE_OK){
-		std::string nulink = loc;
-		link = nulink;
-		ski = true;
+	long rep;
+	CURLcode res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &rep);
+	if (res == CURLE_OK) {
+		if ((rep / 100) >= 4) {
+			curl_easy_reset(curl);
+			return;
+		}
 	}
-	curl_easy_reset(curl);*/
+	curl_easy_reset(curl);
 	//actual file download
 	curl_slist* header = curl_slist_append(NULL, "Connection: keep-alive");
 	header = curl_slist_append(header, "method: GET");
-	header = curl_slist_append(header, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+	//header = curl_slist_append(header, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
 	//header = curl_slist_append(header, "sec-ch-ua:\"Chromium\";v=\"2021\", \"; Not A Brand\";v=\"99\"");
 	header = curl_slist_append(header, "Sec-Fetch-Dest: document");
 	header = curl_slist_append(header, "Sec-Fetch-Mode: navigate");
@@ -170,7 +183,8 @@ void mFrame::downloadLink(std::string link, std::string ender) {
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 	curl_easy_perform(curl);
 	curl_easy_reset(curl);
-	fclose(fp);
+	//is overwriting data for empty files
+	if (fp != nullptr) { fclose(fp); }
 	data_listing->AppendString(link);
 	ptr = curdata;
 	//ofstream wasn't in binary mode smh
@@ -208,7 +222,7 @@ void mFrame::scrapeLoop(int* pre_size, std::string ender, bool* repeat) {
 	*repeat = false;
 	for (int i = 0; i < *pre_size; i++) {
 		if (!checkFileEnding(links[0], ender)) {
-			scrapeLink(links[0]);
+			scrapeLink(links[0], ender);
 		}
 		else {
 			downloadLink(links[0], ender);
@@ -230,7 +244,7 @@ void mFrame::OnStart(wxCommandEvent& evt) {
 	std::string ender = std::string(file_end->GetValue().mb_str());
 	link_text->Clear();
 	//parse html data and either add links to be scraped if not at max depth, or just download files with currently set ending
-	scrapeLink(temp);
+	scrapeLink(temp, ender);
 	bool rep = true;
 	if (links.size() > 0) {
 		while (rep) {

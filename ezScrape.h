@@ -7,7 +7,8 @@
 #include <wx/numdlg.h>
 #include "g_primitive_funcs.h"
 
-//implement actual file downloading
+
+//add multithreading
 
 struct MemBlock {
 	char* mem;
@@ -38,7 +39,7 @@ private:
 	long m_depth = 1;
 	long cur_depth = 0;
 	std::vector<std::string>links;
-	void scrapeLink(std::string link);
+	void scrapeLink(std::string link, std::string ender);
 	void downloadLink(std::string link, std::string ender);
 	void scrapeLoop(int* pre_size, std::string ender, bool* repeat);
 	Gore::HashMap<int> links_map;
